@@ -3,12 +3,17 @@ param = pytest.mark.parametrize
 
 import torch
 
-def test_pseudo_projector():
+@param('no_prec_dim', (False, True))
+def test_pseudo_projector(
+    no_prec_dim
+):
     from pseudo_projector.pseudo_projector import PseudoProjector
 
     proj = PseudoProjector(512, 32)
 
-    features = torch.randn(1, 1024, 512)
+    prec_dims = () if no_prec_dim else (1, 1024)
+
+    features = torch.randn(*prec_dims, 512)
 
     out = proj(features)
 
@@ -36,7 +41,7 @@ def test_newton_schulz_equivalent():
     from pseudo_projector.pseudo_projector import PseudoProjector
 
     proj_exact = PseudoProjector(512, 32, use_newton_schulz = False)
-    proj_ns = PseudoProjector(512, 32, use_newton_schulz = True, newton_schulz_iters = 10)
+    proj_ns = PseudoProjector(512, 32, use_newton_schulz = True, newton_schulz_iters = 8)
 
     proj_ns.load_state_dict(proj_exact.state_dict())
 
