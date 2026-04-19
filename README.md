@@ -23,6 +23,21 @@ out = proj(feats)
 assert feats.shape == out.shape
 ```
 
+With the learned blending of original features with the coarsened ones
+
+```python
+import torch
+from pseudo_projector import PseudoProjector
+
+proj = PseudoProjectorWithResidual(dim = 64, dim_lowrank = 16, learned_alpha = True)
+
+feats = torch.randn(1, 8, 1024, 64) # any number of preceding dimensions
+
+out = proj(feats)
+
+assert feats.shape == out.shape
+```
+
 ## Citations
 
 ```bibtex

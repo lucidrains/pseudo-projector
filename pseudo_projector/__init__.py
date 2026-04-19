@@ -1,1 +1,1 @@
-from pseudo_projector.pseudo_projector import PseudoProjector
+from pseudo_projector.pseudo_projector import PseudoProjector, PseudoProjectorWithResidual
