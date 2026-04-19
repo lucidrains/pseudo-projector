@@ -27,7 +27,7 @@ With the learned blending of original features with the coarsened ones
 
 ```python
 import torch
-from pseudo_projector import PseudoProjector
+from pseudo_projector import PseudoProjectorWithResidual
 
 proj = PseudoProjectorWithResidual(dim = 64, dim_lowrank = 16, learned_alpha = True)
 
