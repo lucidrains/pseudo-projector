@@ -1,6 +1,6 @@
 ## Pseudo-projector
 
-Implementation of the pseudo projector proposed by Vitaly Bulgakov during his work applying transformers to medical records at Mass General Brigham Hospital
+Implementation of the [pseudo projector](https://arxiv.org/abs/2603.09815) proposed by Vitaly Bulgakov during his work applying transformers to medical records at Mass General Brigham Hospital
 
 ## Install
 
