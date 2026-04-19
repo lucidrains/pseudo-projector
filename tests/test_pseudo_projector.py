@@ -31,3 +31,18 @@ def test_pseudo_projector_with_residual(
     if not learned_alpha:
         PseudoProjectorWithResidual.set_static_alpha_(proj_with_residual, 0.1)
         assert proj_with_residual.static_alpha == 0.1
+
+def test_newton_schulz_equivalent():
+    from pseudo_projector.pseudo_projector import PseudoProjector
+
+    proj_exact = PseudoProjector(512, 32, use_newton_schulz = False)
+    proj_ns = PseudoProjector(512, 32, use_newton_schulz = True, newton_schulz_iters = 10)
+
+    proj_ns.load_state_dict(proj_exact.state_dict())
+
+    features = torch.randn(2, 1024, 512)
+
+    out_exact = proj_exact(features)
+    out_ns = proj_ns(features)
+
+    assert torch.allclose(out_exact, out_ns, atol = 1e-4)

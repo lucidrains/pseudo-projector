@@ -1,5 +1,5 @@
 import torch
-from torch import nn
+from torch import nn, linalg
 from torch.nn import Module
 
 from einops import einsum
@@ -14,6 +14,29 @@ def exists(v):
 def default(v, d):
     return v if exists(v) else d
 
+def newton_schulz_inverse(
+    mat,
+    iters = 20,
+    eps = 1e-10
+):
+    dim = mat.shape[-1]
+    identity = torch.eye(dim, device = mat.device, dtype = mat.dtype)
+
+    # ensure initial approximation is within the radius of convergence
+
+    norm_1 = linalg.matrix_norm(mat, ord = 1, dim = (-2, -1), keepdim = True)
+    norm_inf = linalg.matrix_norm(mat, ord = float('inf'), dim = (-2, -1), keepdim = True)
+
+    scale = 1. / (norm_1 * norm_inf).clamp(min = eps)
+    inverse_approx = scale * mat.transpose(-1, -2)
+
+    # newton schulz iterations
+
+    for _ in range(iters):
+        inverse_approx = inverse_approx @ (2 * identity - mat @ inverse_approx)
+
+    return inverse_approx
+
 # classes
 
 class PseudoProjector(Module):
@@ -21,13 +44,18 @@ class PseudoProjector(Module):
         self,
         dim,
         dim_lowrank,
-        eps = 1e-10
+        eps = 1e-10,
+        use_newton_schulz = False,
+        newton_schulz_iters = 10
     ):
         super().__init__()
         assert dim_lowrank < dim, 'low rank dimension must be smaller than model dimension'
 
         self.restrict = nn.Linear(dim, dim_lowrank, bias = False)
         self.prolong = nn.Linear(dim_lowrank, dim, bias = False)
+
+        self.use_newton_schulz = use_newton_schulz
+        self.newton_schulz_iters = newton_schulz_iters
 
         self.register_buffer('eye_with_eps', torch.eye(dim_lowrank) + eps, persistent = False)
 
@@ -49,7 +77,11 @@ class PseudoProjector(Module):
 
         # inverse
 
-        u = torch.linalg.solve(coarse_grid_op, coarsened, left = False)
+        if self.use_newton_schulz:
+            coarse_grid_op_inv = newton_schulz_inverse(coarse_grid_op, iters = self.newton_schulz_iters)
+            u = coarsened @ coarse_grid_op_inv
+        else:
+            u = linalg.solve(coarse_grid_op, coarsened, left = False)
 
         projected = self.prolong(u)
 
@@ -67,10 +99,18 @@ class PseudoProjectorWithResidual(Module):
         norm_before_proj_gate = False,  # norm before projecting to learned alpha
         per_feature = False,
         eps = 1e-10,
+        use_newton_schulz = False,
+        newton_schulz_iters = 100
     ):
         super().__init__()
 
-        self.pseudo_proj = PseudoProjector(dim, dim_lowrank, eps)
+        self.pseudo_proj = PseudoProjector(
+            dim,
+            dim_lowrank,
+            eps = eps,
+            use_newton_schulz = use_newton_schulz,
+            newton_schulz_iters = newton_schulz_iters
+        )
 
         self.learned_alpha = learned_alpha
 
