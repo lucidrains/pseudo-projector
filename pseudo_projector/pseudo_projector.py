@@ -1,10 +1,11 @@
 import torch
 from torch import nn, linalg
 from torch.nn import Module
+import torch.nn.functional as F
 
 from einops import einsum
 
-from torch_einops_utils import pack_with_inverse
+from torch_einops_utils import pack_with_inverse, tree_flatten_with_inverse
 
 # functions
 
@@ -46,7 +47,8 @@ class PseudoProjector(Module):
         dim_lowrank,
         eps = 1e-10,
         use_newton_schulz = False,
-        newton_schulz_iters = 10
+        newton_schulz_iters = 10,
+        orthog_aux_loss = False
     ):
         super().__init__()
         assert dim_lowrank < dim, 'low rank dimension must be smaller than model dimension'
@@ -57,35 +59,53 @@ class PseudoProjector(Module):
         self.use_newton_schulz = use_newton_schulz
         self.newton_schulz_iters = newton_schulz_iters
 
-        self.register_buffer('eye_with_eps', torch.eye(dim_lowrank) + eps, persistent = False)
+        self.eps = eps
+        self.register_buffer('eye', torch.eye(dim_lowrank), persistent = False)
+
+        self.orthog_aux_loss = orthog_aux_loss
 
     def forward(
         self,
         features
     ):
+        orthog_aux_loss, use_newton_schulz, eps = self.orthog_aux_loss, self.use_newton_schulz, self.eps
+
         features, inverse_pack = pack_with_inverse(features, '* d') # allow for any number of preceding dimension
 
         # P = Q (Q* Q)^−1 Q∗
 
         # follow notation in paper
 
-        Q, Q_star = self.prolong.weight, self.restrict.weight
+        Q, Q_star, I = self.prolong.weight, self.restrict.weight, self.eye
 
-        coarse_grid_op = einsum(Q_star, Q, 'dc d, d ec -> ec dc') + self.eye_with_eps
+        coarse_grid_op = einsum(Q_star, Q, 'dc d, d ec -> ec dc')
 
         coarsened = self.restrict(features)
 
         # inverse
 
-        if self.use_newton_schulz:
-            coarse_grid_op_inv = newton_schulz_inverse(coarse_grid_op, iters = self.newton_schulz_iters)
+        if orthog_aux_loss:
+            u = coarsened
+        elif use_newton_schulz:
+            coarse_grid_op_inv = newton_schulz_inverse(coarse_grid_op + I + eps, iters = self.newton_schulz_iters)
             u = coarsened @ coarse_grid_op_inv
         else:
-            u = linalg.solve(coarse_grid_op, coarsened, left = False)
+            u = linalg.solve(coarse_grid_op + I + eps, coarsened, left = False)
 
         projected = self.prolong(u)
 
-        return inverse_pack(projected)
+        projected = inverse_pack(projected)
+
+        # returning
+
+        if not orthog_aux_loss:
+            return projected
+
+        # orthog aux loss
+
+        aux_loss = F.mse_loss(coarse_grid_op, self.eye)
+
+        return projected, aux_loss
 
 # with the original features as residual, with static or dynamic gate (alpha in paper)
 
@@ -100,7 +120,8 @@ class PseudoProjectorWithResidual(Module):
         per_feature = False,
         eps = 1e-10,
         use_newton_schulz = False,
-        newton_schulz_iters = 100
+        newton_schulz_iters = 10,
+        orthog_aux_loss = False
     ):
         super().__init__()
 
@@ -109,7 +130,8 @@ class PseudoProjectorWithResidual(Module):
             dim_lowrank,
             eps = eps,
             use_newton_schulz = use_newton_schulz,
-            newton_schulz_iters = newton_schulz_iters
+            newton_schulz_iters = newton_schulz_iters,
+            orthog_aux_loss = orthog_aux_loss
         )
 
         self.learned_alpha = learned_alpha
@@ -148,7 +170,9 @@ class PseudoProjectorWithResidual(Module):
     ):
         residual = feats
 
-        projected = self.pseudo_proj(feats)
+        out = self.pseudo_proj(feats)
+
+        (projected, *rest), inverse_flatten = tree_flatten_with_inverse(out)
 
         # static or dynamic
 
@@ -159,4 +183,8 @@ class PseudoProjectorWithResidual(Module):
 
         # blended output
 
-        return residual.lerp(projected, alpha) # alpha is fraction of the projected
+        feats_and_projected = residual.lerp(projected, alpha) # alpha is fraction of the projected
+
+        # return
+
+        return inverse_flatten((feats_and_projected, *rest))

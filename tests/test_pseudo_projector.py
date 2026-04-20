@@ -41,7 +41,7 @@ def test_newton_schulz_equivalent():
     from pseudo_projector.pseudo_projector import PseudoProjector
 
     proj_exact = PseudoProjector(512, 32, use_newton_schulz = False)
-    proj_ns = PseudoProjector(512, 32, use_newton_schulz = True, newton_schulz_iters = 8)
+    proj_ns = PseudoProjector(512, 32, use_newton_schulz = True, newton_schulz_iters = 9)
 
     proj_ns.load_state_dict(proj_exact.state_dict())
 
@@ -51,3 +51,16 @@ def test_newton_schulz_equivalent():
     out_ns = proj_ns(features)
 
     assert torch.allclose(out_exact, out_ns, atol = 1e-4)
+
+def test_orthog_aux_loss():
+    from pseudo_projector.pseudo_projector import PseudoProjector
+
+    proj = PseudoProjector(512, 32, orthog_aux_loss = True)
+
+    features = torch.randn(2, 1024, 512)
+
+    out, aux_loss = proj(features)
+
+    assert out.shape == features.shape
+    assert aux_loss.numel() == 1
+    assert aux_loss.requires_grad
